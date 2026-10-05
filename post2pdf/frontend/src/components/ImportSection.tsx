@@ -14,7 +14,7 @@ export default function ImportSection({
   onFacebookImport,
   hasImages,
 }: ImportSectionProps) {
-  const [activeTab, setActiveTab] = useState<'upload' | 'url'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'url'>('url');
   const [fbUrl, setFbUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -143,22 +143,6 @@ export default function ImportSection({
         {/* Mode Switcher Tabs */}
         <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 p-1.5 gap-1.5">
           <button
-            onClick={() => setActiveTab('upload')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200
-              ${activeTab === 'upload'
-                ? 'bg-white dark:bg-slate-800 text-brand-600 dark:text-brand-400 shadow-xs border border-slate-200/80 dark:border-slate-700/60'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            type="button"
-          >
-            <Upload className="w-4 h-4 text-brand-500" />
-            <span>Upload Images Directly</span>
-            <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400">
-              Fastest
-            </span>
-          </button>
-
-          <button
             onClick={() => setActiveTab('url')}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200
               ${activeTab === 'url'
@@ -169,6 +153,19 @@ export default function ImportSection({
           >
             <LinkIcon className="w-4 h-4 text-brand-500" />
             <span>Import from Facebook URL</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('upload')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200
+              ${activeTab === 'upload'
+                ? 'bg-white dark:bg-slate-800 text-brand-600 dark:text-brand-400 shadow-xs border border-slate-200/80 dark:border-slate-700/60'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            type="button"
+          >
+            <Upload className="w-4 h-4 text-brand-500" />
+            <span>Upload Images Directly</span>
           </button>
         </div>
 
