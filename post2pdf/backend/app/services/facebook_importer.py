@@ -204,11 +204,19 @@ def extract_non_photo_ids(html: str, post_url: str = "") -> set[str]:
 
 def extract_photo_attachment_ids(html: str) -> list[str]:
     """
-    Extract photo IDs from photo_attachments_list, Photo media nodes, and attachment objects.
-    When a post has 50, 75, or more images, Facebook embeds the complete list of photo IDs
-    in photo_attachments_list.
+    Extract photo IDs from ALL Facebook SSR JSON structures.
+
+    Facebook embeds photo IDs in many different JSON structures across <script> tags.
+    For posts with 50, 75, or more images, the IDs can appear in:
+    - photo_attachments_list arrays
+    - edges arrays inside all_subattachments / subattachments
+    - Relay query data with Photo nodes
+    - attachment_fbid, photo_id, and fbid fields
+    - photo_image and image URI fields containing media_id params
+    - CometPhotoRoot and PhotoViewerPhoto data
     """
     photo_ids: list[str] = []
+    # Normalize escaped JSON so all patterns work on clean text
     clean_html = html.replace(r'\"', '"').replace(r"\/", "/")
 
     def _add(pid: str):
@@ -216,21 +224,93 @@ def extract_photo_attachment_ids(html: str) -> list[str]:
             photo_ids.append(pid)
 
     # 1. photo_attachments_list: ["id1", "id2", ...]
+    #    This is Facebook's primary complete list for multi-photo posts
     for match in re.finditer(r'photo_attachments_list"\s*:\s*\[([^\]]+)\]', clean_html):
         for pid in re.findall(r'(\d+)', match.group(1)):
             _add(pid)
 
     # 2. comet story attachments: "media":{"__typename":"Photo","id":"..."}
+    #    Covers both "media" and "target" wrapper keys
     for match in re.findall(r'"(?:media|target)"\s*:\s*\{"__typename"\s*:\s*"Photo"[^}]*"id"\s*:\s*"(\d+)"', clean_html):
         _add(match)
 
-    # 3. Direct photo_id fields
+    # 3. Relay-style node edges: "node":{"__typename":"Photo","id":"..."}
+    #    Facebook's GraphQL relay data embeds photos in edges arrays
+    for match in re.findall(r'"node"\s*:\s*\{\s*"__typename"\s*:\s*"Photo"\s*,\s*"id"\s*:\s*"(\d+)"', clean_html):
+        _add(match)
+    # Reverse order: id before __typename
+    for match in re.findall(r'"node"\s*:\s*\{\s*"id"\s*:\s*"(\d+)"\s*,\s*"__typename"\s*:\s*"Photo"', clean_html):
+        _add(match)
+
+    # 4. Direct photo_id fields
     for match in re.findall(r'"photo_id"\s*:\s*"(\d+)"', clean_html):
         _add(match)
 
-    # 4. Attachment fbid values
+    # 5. Attachment fbid values
     for match in re.findall(r'"attachment_fbid"\s*:\s*"(\d+)"', clean_html):
         _add(match)
+
+    # 6. Generic "fbid" fields (used in photo viewer and album data)
+    for match in re.findall(r'"fbid"\s*:\s*"(\d+)"', clean_html):
+        _add(match)
+    # Also numeric fbid (not string)
+    for match in re.findall(r'"fbid"\s*:\s*(\d{10,})', clean_html):
+        _add(match)
+
+    # 7. Photo nodes in all_subattachments edges:
+    #    "all_subattachments":{"nodes":[{"media":{"__typename":"Photo","id":"..."}},...]}
+    #    and "edges":[{"node":{"media":{"id":"..."}}}]
+    for match in re.findall(r'"media"\s*:\s*\{[^}]*"id"\s*:\s*"(\d+)"[^}]*"__typename"\s*:\s*"Photo"', clean_html):
+        _add(match)
+
+    # 8. CometPhotoRoot and photo viewer data: "photoID":"..."
+    for match in re.findall(r'"photoID"\s*:\s*"(\d+)"', clean_html):
+        _add(match)
+    for match in re.findall(r'"photo_fbid"\s*:\s*"(\d+)"', clean_html):
+        _add(match)
+    for match in re.findall(r'"photoFbid"\s*:\s*"(\d+)"', clean_html):
+        _add(match)
+
+    # 9. Image URIs with media_id parameter embedded in JSON
+    for match in re.findall(r'media_id[=:](\d{10,})', clean_html):
+        _add(match)
+
+    # 10. Broad "id":"<digits>" inside blocks that mention "Photo" typename
+    #     Match JSON chunks that contain Photo type and extract all IDs
+    for chunk_match in re.finditer(r'\{[^{}]{0,500}"__typename"\s*:\s*"Photo"[^{}]{0,500}\}', clean_html):
+        chunk = chunk_match.group(0)
+        for pid in re.findall(r'"id"\s*:\s*"(\d{10,})"', chunk):
+            _add(pid)
+
+    # 11. Subattachment arrays (both "nodes" and "edges" variants)
+    #     "all_subattachments":{"count":75,"nodes":[...]} or
+    #     "subattachments":{"edges":[{"node":{...}}]}
+    for block_match in re.finditer(
+        r'"(?:all_subattachments|subattachments)"\s*:\s*\{[^{}]*(?:"nodes"|"edges")\s*:\s*\[(.*?)\]\s*\}',
+        clean_html,
+        re.DOTALL,
+    ):
+        block = block_match.group(1)
+        for pid in re.findall(r'"id"\s*:\s*"(\d{10,})"', block):
+            _add(pid)
+
+    # 12. Large edges arrays: Facebook may serialize all photo edges in a single array
+    #     "edges":[{"node":{"id":"...","__typename":"Photo",...}},...]
+    for edges_match in re.finditer(r'"edges"\s*:\s*\[((?:[^[\]]*|\[(?:[^[\]]*|\[[^[\]]*\])*\])*)\]', clean_html):
+        edges_str = edges_match.group(1)
+        if '"Photo"' in edges_str or '"photo"' in edges_str.lower():
+            for pid in re.findall(r'"id"\s*:\s*"(\d{10,})"', edges_str):
+                _add(pid)
+
+    # 13. Photo URLs with fbid parameter in query strings
+    for match in re.findall(r'[?&]fbid=(\d{10,})', clean_html):
+        _add(match)
+
+    # 14. Attachment type=photo data: "type":"photo"..."fbid":"..."
+    for chunk_match in re.finditer(r'\{[^{}]{0,800}"type"\s*:\s*"photo"[^{}]{0,800}\}', clean_html, re.IGNORECASE):
+        chunk = chunk_match.group(0)
+        for pid in re.findall(r'"(?:fbid|id|photo_id)"\s*:\s*"(\d{10,})"', chunk):
+            _add(pid)
 
     return photo_ids
 
@@ -461,10 +541,12 @@ async def import_facebook_images(url: str) -> FacebookImportResponse:
     This function:
     1. Validates the URL
     2. Fetches public page HTML with Googlebot headers (retrieves full SSR photo attachments)
-    3. Extracts photo_attachments_list, Photo media nodes, and CDN image URLs
-    4. Filters out author avatars, commenter profile pics, and group headers
-    5. Explores media set / album links to retrieve all images in multi-photo albums
-    6. Returns clean, high-resolution study material photos
+    3. Extracts ALL photo IDs from embedded JSON (photo_attachments_list, edges, relay data, etc.)
+    4. Generates high-res lookaside URLs for every discovered photo ID
+    5. Also extracts CDN image URLs and merges with lookaside-based results
+    6. Filters out author avatars, commenter profile pics, and group headers
+    7. Explores media set / album links to retrieve additional images
+    8. Returns clean, high-resolution study material photos
     """
     is_valid, error_msg = validate_facebook_url(url)
     if not is_valid:
@@ -482,47 +564,105 @@ async def import_facebook_images(url: str) -> FacebookImportResponse:
             message=fetch_error or "Facebook prevented automatic image retrieval for this post. You can upload the post images manually instead.",
         )
 
-    # 1. Extract direct images from the post HTML
+    # 1. Extract ALL photo IDs from the post HTML (comprehensive extraction)
+    all_photo_ids = extract_photo_attachment_ids(html)
+    excluded_ids = extract_non_photo_ids(html, url)
+
+    # 2. Extract direct CDN images from the post HTML
     cdn_images = extract_public_image_urls(html, url)
 
-    # 2. Check if this post is a multi-photo album with an expected count
-    sub_counts = [
-        int(c) for c in re.findall(r'"(?:all_subattachments|subattachments)"\s*:\s*\{\s*"count"\s*:\s*(\d+)', html)
-    ]
+    # 3. Check if this post is a multi-photo album with an expected count
+    #    Look in multiple JSON patterns for the expected photo count
+    sub_counts = []
+    for pattern in [
+        r'"(?:all_subattachments|subattachments)"\s*:\s*\{\s*"count"\s*:\s*(\d+)',
+        r'"photo_count"\s*:\s*(\d+)',
+        r'"total_count"\s*:\s*(\d+)',
+        r'"media_count"\s*:\s*(\d+)',
+    ]:
+        for c in re.findall(pattern, html):
+            try:
+                sub_counts.append(int(c))
+            except ValueError:
+                pass
     expected_count = max(sub_counts) if sub_counts else None
 
-    # 3. If an album exists or more photos are expected, check media set URLs
+    # 4. Build lookaside URLs from ALL discovered photo IDs that aren't already present
+    #    This is the key step that recovers images missed by CDN extraction
+    existing_mids = set()
+    for img in cdn_images:
+        mid = _get_media_id_from_url(img.url)
+        if mid:
+            existing_mids.add(mid)
+
+    for pid in all_photo_ids:
+        if pid not in excluded_ids and pid not in existing_mids:
+            existing_mids.add(pid)
+            clean_url = f"https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id={pid}"
+            cdn_images.append(ImageInfo(
+                url=clean_url,
+                preview_url=f"/api/images/proxy?url={quote_plus(clean_url)}",
+            ))
+
+    logger.info(
+        f"Post extraction: {len(all_photo_ids)} photo IDs found, "
+        f"{len(cdn_images)} total images after lookaside generation, "
+        f"expected={expected_count}"
+    )
+
+    # 5. If an album exists or more photos are expected, check media set URLs
+    current_unique = len(_deduplicate_images(cdn_images))
+    need_more = expected_count and current_unique < expected_count
+
     media_set_urls = _extract_media_set_urls(html, url)
+
+    # Also try alternate media set prefixes (gm for group media, a for album)
+    if need_more and media_set_urls:
+        base_urls = list(media_set_urls)
+        for ms_url in base_urls:
+            for prefix in ["gm", "a"]:
+                alt = re.sub(r'set=(?:pcb|gm|a)\.', f'set={prefix}.', ms_url)
+                if alt not in media_set_urls:
+                    media_set_urls.append(alt)
+
     if media_set_urls:
         for ms_url in media_set_urls:
             try:
                 ms_html, _ = await fetch_public_page(ms_url)
                 if ms_html:
+                    # Extract photo IDs from the media set page too
+                    ms_photo_ids = extract_photo_attachment_ids(ms_html)
+                    ms_excluded = extract_non_photo_ids(ms_html, ms_url)
+
+                    for pid in ms_photo_ids:
+                        if pid not in ms_excluded and pid not in excluded_ids and pid not in existing_mids:
+                            existing_mids.add(pid)
+                            clean_url = f"https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id={pid}"
+                            cdn_images.append(ImageInfo(
+                                url=clean_url,
+                                preview_url=f"/api/images/proxy?url={quote_plus(clean_url)}",
+                            ))
+
+                    # Also extract CDN images from the media set page
                     ms_images = extract_public_image_urls(ms_html, ms_url)
-                    if expected_count and len(ms_images) >= expected_count:
-                        cdn_images = ms_images
-                        break
-                    elif len(ms_images) > 0:
-                        existing_mids = {_get_media_id_from_url(img.url) for img in cdn_images}
-                        existing_mids.discard(None)
-                        existing_urls = {img.url for img in cdn_images}
+                    existing_urls = {img.url for img in cdn_images}
 
-                        for img in ms_images:
-                            mid = _get_media_id_from_url(img.url)
-                            if mid:
-                                if mid not in existing_mids:
-                                    existing_mids.add(mid)
-                                    cdn_images.append(img)
-                            elif img.url not in existing_urls:
-                                existing_urls.add(img.url)
+                    for img in ms_images:
+                        mid = _get_media_id_from_url(img.url)
+                        if mid:
+                            if mid not in existing_mids:
+                                existing_mids.add(mid)
                                 cdn_images.append(img)
+                        elif img.url not in existing_urls:
+                            existing_urls.add(img.url)
+                            cdn_images.append(img)
 
-                        if expected_count and len(_deduplicate_images(cdn_images)) >= expected_count:
-                            break
+                    if expected_count and len(_deduplicate_images(cdn_images)) >= expected_count:
+                        break
             except Exception as e:
                 logger.warning(f"Error fetching media set URL {ms_url}: {e}")
 
-    # 4. Only use Open Graph image as a last-resort fallback if NO post photos were found
+    # 6. Only use Open Graph image as a last-resort fallback if NO post photos were found
     if not cdn_images:
         og_images = extract_open_graph_images(html)
         cdn_images.extend(og_images)
