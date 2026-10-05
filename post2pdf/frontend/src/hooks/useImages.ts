@@ -32,15 +32,20 @@ export function useImages() {
 
   const addFacebookImages = useCallback(
     (
-      fbImages: Array<{ url: string; width?: number; height?: number }>
+      fbImages: Array<{ url: string; preview_url?: string; width?: number; height?: number }>
     ) => {
+      const apiBase = import.meta.env.VITE_API_URL || '';
       const newImages: ImportedImage[] = fbImages.map((img) => {
         orderCounter.current += 1;
+        let preview = img.preview_url || img.url;
+        if (preview.startsWith('/')) {
+          preview = `${apiBase}${preview}`;
+        }
         return {
           id: generateId(),
           source: 'facebook' as const,
           url: img.url,
-          previewUrl: img.url,
+          previewUrl: preview,
           width: img.width,
           height: img.height,
           rotation: 0,

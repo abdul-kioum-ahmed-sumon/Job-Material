@@ -5,7 +5,7 @@ import { isFacebookUrl } from '../utils';
 
 interface ImportSectionProps {
   onFilesSelected: (files: FileList | File[]) => void;
-  onFacebookImport: (images: Array<{ url: string; width?: number; height?: number }>) => void;
+  onFacebookImport: (images: Array<{ url: string; preview_url?: string; width?: number; height?: number }>) => void;
   hasImages: boolean;
 }
 

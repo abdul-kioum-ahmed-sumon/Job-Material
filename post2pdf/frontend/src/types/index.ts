@@ -15,6 +15,7 @@ export interface FacebookImportResponse {
   success: boolean;
   images?: Array<{
     url: string;
+    preview_url?: string;
     width?: number;
     height?: number;
   }>;

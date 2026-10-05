@@ -97,15 +97,14 @@ async def _load_image_from_url(url: str) -> Optional[PILImage.Image]:
         return None
 
     try:
+        headers = {
+            "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+            "Accept": "image/*,*/*;q=0.8",
+        }
         async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            response = await client.get(url)
+            response = await client.get(url, headers=headers)
             if response.status_code != 200:
                 logger.warning(f"Failed to download image: {url} (status {response.status_code})")
-                return None
-
-            content_type = response.headers.get("content-type", "")
-            if not content_type.startswith("image/"):
-                logger.warning(f"Non-image content type: {content_type} for {url}")
                 return None
 
             img = PILImage.open(io.BytesIO(response.content))

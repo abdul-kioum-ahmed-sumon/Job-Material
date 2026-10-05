@@ -11,6 +11,7 @@ class FacebookImportRequest(BaseModel):
 
 class ImageInfo(BaseModel):
     url: str
+    preview_url: Optional[str] = None
     width: Optional[int] = None
     height: Optional[int] = None
 

@@ -201,3 +201,46 @@ async def validate_images(body: dict, request: Request):
                 invalid.append(url)
 
     return {"valid": valid, "invalid": invalid}
+
+
+# ─── Image Proxy ────────────────────────────────────────────────
+
+@router.get(
+    "/api/images/proxy",
+    tags=["Images"],
+    summary="Proxy a Facebook image with proper crawler headers",
+    description="Allows browser to preview Facebook CDN or crawler images without CORS/bot blocks.",
+)
+async def proxy_image(url: str):
+    """Proxy image requests with crawler headers."""
+    import httpx
+    from app.utils.security import is_safe_image_url
+
+    if not is_safe_image_url(url):
+        raise HTTPException(status_code=400, detail="Invalid image URL.")
+
+    try:
+        headers = {
+            "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+            "Accept": "image/*,*/*;q=0.8",
+        }
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                media_type = resp.headers.get("content-type", "image/jpeg")
+                if not media_type.startswith("image/"):
+                    media_type = "image/jpeg"
+                return Response(
+                    content=resp.content,
+                    media_type=media_type,
+                    headers={
+                        "Cache-Control": "public, max-age=86400",
+                        "Access-Control-Allow-Origin": "*",
+                    },
+                )
+            raise HTTPException(status_code=resp.status_code, detail="Failed to fetch image.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error proxying image {url}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to proxy image.")
