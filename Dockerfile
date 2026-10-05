@@ -1,6 +1,6 @@
 # Multi-stage Docker build for Post2PDF (Unified Single Container)
 # Stage 1: Build the React frontend
-FROM node:20-alpine AS frontend-builder
+FROM node:22-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY post2pdf/frontend/package*.json ./
 RUN npm install
