@@ -52,44 +52,49 @@ export default function SortableImageCard({
           draggable={false}
         />
 
-        {/* Index Badge (Always visible on mobile & desktop top-left) */}
-        <div className="absolute top-2 left-2 z-10">
-          <span className="px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-md text-white text-[11px] font-bold tabular-nums shadow-sm">
+        {/* Index Badge & Reorder Handle (Top-left, non-overlapping flex layout) */}
+        <div className="absolute top-2 left-2 z-20 flex items-center gap-1.5">
+          <span className="h-7 px-2.5 flex items-center justify-center rounded-xl bg-black/60 backdrop-blur-md text-white text-[11px] font-bold tabular-nums shadow-sm select-none">
             #{String(index).padStart(2, '0')}
           </span>
+
+          {/* Reorder drag handle */}
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            className={`h-7 w-7 flex items-center justify-center rounded-xl bg-black/60 hover:bg-black/80 active:bg-brand-600 text-white cursor-grab active:cursor-grabbing backdrop-blur-md transition-all shadow-sm ${
+              isDragging
+                ? 'opacity-100 pointer-events-auto'
+                : 'opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto'
+            }`}
+            aria-label={`Drag to reorder image ${index}`}
+            title="Drag to reorder"
+          >
+            <GripVertical className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Rotation indicator pill */}
         {image.rotation > 0 && (
           <div className="absolute bottom-2 left-2 z-10">
-            <span className="px-2 py-0.5 rounded-md bg-brand-600/90 backdrop-blur-md text-white text-[10px] font-bold shadow-xs">
+            <span className="h-6 px-2 flex items-center rounded-lg bg-brand-600/90 backdrop-blur-md text-white text-[10px] font-bold shadow-xs">
               {image.rotation}°
             </span>
           </div>
         )}
 
         {/* Action Overlay */}
-        <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col justify-between p-2">
-          {/* Top Actions */}
-          <div className="flex items-center justify-between">
-            {/* Drag handle */}
+        <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col justify-between p-2 pointer-events-none group-hover:pointer-events-auto">
+          {/* Top Actions: Delete on top-right */}
+          <div className="flex items-center justify-end">
             <button
-              {...attributes}
-              {...listeners}
-              className="p-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white cursor-grab active:cursor-grabbing backdrop-blur-md transition-colors"
-              aria-label={`Drag to reorder image ${index}`}
-              title="Drag to reorder"
-            >
-              <GripVertical className="w-4 h-4" />
-            </button>
-
-            {/* Delete button */}
-            <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onRemove(image.id);
               }}
-              className="p-1.5 rounded-xl bg-red-500/80 hover:bg-red-500 text-white backdrop-blur-md transition-colors shadow-sm"
+              className="h-7 w-7 flex items-center justify-center rounded-xl bg-red-500/80 hover:bg-red-500 text-white backdrop-blur-md transition-colors shadow-sm"
               aria-label={`Remove image ${index}`}
               title="Remove image"
             >
@@ -102,11 +107,12 @@ export default function SortableImageCard({
             {/* Zoom / Full Preview */}
             {onPreview && (
               <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   onPreview(image);
                 }}
-                className="p-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white backdrop-blur-md transition-colors"
+                className="h-7 w-7 flex items-center justify-center rounded-xl bg-white/20 hover:bg-white/30 text-white backdrop-blur-md transition-colors"
                 aria-label={`Preview image ${index}`}
                 title="Inspect high-res"
               >
@@ -116,11 +122,12 @@ export default function SortableImageCard({
 
             {/* Rotate button */}
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onRotate(image.id);
               }}
-              className="p-1.5 rounded-xl bg-white/20 hover:bg-brand-500 text-white backdrop-blur-md transition-colors"
+              className="h-7 w-7 flex items-center justify-center rounded-xl bg-white/20 hover:bg-brand-500 text-white backdrop-blur-md transition-colors"
               aria-label={`Rotate image ${index}`}
               title="Rotate 90°"
             >
