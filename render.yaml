@@ -1,22 +1,22 @@
-# Render Blueprint specification for Post2PDF (Workspace Root)
+# Render Blueprint specification for Post2PDF (Single Unified Service)
 # https://render.com/docs/blueprint-spec
 
 services:
-  # ─── FastAPI Python Backend ──────────────────────────────────────
+  # ─── Unified FastAPI + React Web Service ──────────────────────────
   - type: web
-    name: post2pdf-backend
+    name: post2pdf
     runtime: python
-    rootDir: post2pdf/backend
     plan: free
     region: oregon
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    buildCommand: |
+      npm --prefix post2pdf/frontend install && npm --prefix post2pdf/frontend run build && pip install -r post2pdf/backend/requirements.txt
+    startCommand: cd post2pdf/backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
-      - key: FRONTEND_URL
-        sync: false
+      - key: NODE_VERSION
+        value: 20.11.0
       - key: MAX_IMAGE_SIZE_MB
         value: "15"
       - key: MAX_IMAGES
@@ -29,20 +29,3 @@ services:
         value: "30"
       - key: RATE_LIMIT_WINDOW_SECONDS
         value: "60"
-
-  # ─── React Vite Frontend (Static Site) ──────────────────────────
-  - type: web
-    name: post2pdf-frontend
-    runtime: static
-    rootDir: post2pdf/frontend
-    plan: free
-    region: oregon
-    buildCommand: npm install && npm run build
-    staticPublishPath: ./dist
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      - key: VITE_API_URL
-        sync: false
