@@ -374,6 +374,13 @@ git push -u origin main
 
 ---
 
+## 👨‍💻 Developer & Creator
+
+**Lead Developer & Architect:** **A.K.A.SUMON**  
+*Crafted to empower students and competitive exam candidates across Bangladesh and South Asia with a private, distraction-free study tool.*
+
+---
+
 ## 📄 License
 
 Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for more information.

@@ -47,3 +47,10 @@ npm install
 npm run dev
 ```
 Open `http://localhost:5173` in your browser.
+
+---
+
+## 👨‍💻 Developer & Creator
+
+**Lead Developer & Architect:** **A.K.A.SUMON**  
+*Engineered to help students, BCS examinees, and job aspirants turn social media study materials into clean, distraction-free, print-ready PDF documents.*

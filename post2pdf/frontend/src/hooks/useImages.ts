@@ -87,6 +87,25 @@ export function useImages() {
     setImages(updated);
   }, []);
 
+  const rotateAllImages = useCallback((degrees: number = 90) => {
+    setImages((prev) =>
+      prev.map((img) => ({
+        ...img,
+        rotation: (img.rotation + degrees) % 360,
+      }))
+    );
+  }, []);
+
+  const reverseImages = useCallback(() => {
+    setImages((prev) => {
+      const reversed = [...prev].reverse().map((img, idx) => ({
+        ...img,
+        order: idx + 1,
+      }));
+      return reversed;
+    });
+  }, []);
+
   const clearImages = useCallback(() => {
     images.forEach((img) => revokePreviewUrl(img.previewUrl));
     setImages([]);
@@ -99,6 +118,8 @@ export function useImages() {
     addFacebookImages,
     removeImage,
     rotateImage,
+    rotateAllImages,
+    reverseImages,
     reorderImages,
     clearImages,
   };
