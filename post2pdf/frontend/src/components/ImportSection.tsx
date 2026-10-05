@@ -103,37 +103,38 @@ export default function ImportSection({
   return (
     <div className="space-y-8 animate-slide-up">
       {/* Hero Header */}
-      <div className="text-center space-y-4 max-w-3xl mx-auto">
+      <div className="text-center space-y-4 max-w-2xl mx-auto">
         {/* Modern Pill Badge */}
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-brand-50 via-indigo-50 to-purple-50 dark:from-brand-950/40 dark:via-indigo-950/30 dark:to-purple-950/40 border border-brand-200/80 dark:border-brand-800/80 text-brand-700 dark:text-brand-300 text-xs font-semibold shadow-xs">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-50/80 dark:bg-slate-800/80 border border-brand-200/80 dark:border-slate-700 text-brand-700 dark:text-brand-300 text-xs font-semibold shadow-xs">
           <Sparkles className="w-3.5 h-3.5 text-brand-500 animate-pulse" />
-          <span>Post2PDF Studio • Engineered by <strong className="font-bold text-brand-800 dark:text-brand-200">A.K.A.SUMON</strong></span>
+          <span>Post2PDF Studio • Engineered by <strong className="font-bold text-slate-900 dark:text-white">A.K.A.SUMON</strong></span>
         </div>
 
-        <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-[1.15]">
-          Convert Study Posts into{' '}
-          <span className="bg-gradient-to-r from-brand-600 via-indigo-600 to-purple-600 dark:from-brand-400 dark:via-indigo-300 dark:to-purple-400 bg-clip-text text-transparent">
-            Clean, Crisp PDFs
+        {/* Clean, professional headline */}
+        <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-slate-900 dark:text-white leading-tight">
+          Convert Facebook Posts to{' '}
+          <span className="bg-gradient-to-r from-brand-600 via-indigo-600 to-purple-600 dark:from-brand-400 dark:via-indigo-400 dark:to-purple-400 bg-clip-text text-transparent">
+            Clean PDF
           </span>
         </h1>
 
-        <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
-          Transform multi-photo Facebook study materials, BCS prep notes, and question sheets into high-resolution, printable documents in seconds.
+        <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 max-w-xl mx-auto leading-relaxed">
+          Transform multi-photo Facebook study notes, job exam sheets, and lecture summaries into high-resolution, printable documents in seconds.
         </p>
 
         {/* Feature Highlights Pills */}
-        <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-100/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 text-xs font-medium border border-slate-200/60 dark:border-slate-700/60">
+        <div className="flex flex-wrap items-center justify-center gap-2 pt-1 text-xs text-slate-600 dark:text-slate-300 font-medium">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-100/80 dark:bg-slate-800/70 border border-slate-200/60 dark:border-slate-700/60">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
             100% In-Browser & Private
           </span>
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-100/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 text-xs font-medium border border-slate-200/60 dark:border-slate-700/60">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-100/80 dark:bg-slate-800/70 border border-slate-200/60 dark:border-slate-700/60">
             <Zap className="w-3.5 h-3.5 text-amber-500" />
             Instant Generation
           </span>
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-100/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 text-xs font-medium border border-slate-200/60 dark:border-slate-700/60">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-100/80 dark:bg-slate-800/70 border border-slate-200/60 dark:border-slate-700/60">
             <Layers className="w-3.5 h-3.5 text-brand-500" />
-            1, 2, or 4 Grid Layouts
+            A4 Print Layouts
           </span>
         </div>
       </div>
