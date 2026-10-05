@@ -1,0 +1,280 @@
+@import "tailwindcss";
+
+/* ─── Custom Theme ────────────────────────────────────── */
+
+@theme {
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+
+  --color-surface-light: #ffffff;
+  --color-surface-dark: #0f172a;
+  --color-surface-card-light: #f8fafc;
+  --color-surface-card-dark: #1e293b;
+  --color-surface-elevated-light: #ffffff;
+  --color-surface-elevated-dark: #1e293b;
+  --color-border-light: #e2e8f0;
+  --color-border-dark: #334155;
+  --color-text-primary-light: #0f172a;
+  --color-text-primary-dark: #f1f5f9;
+  --color-text-secondary-light: #64748b;
+  --color-text-secondary-dark: #94a3b8;
+
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #3b82f6;
+
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* ─── Base ────────────────────────────────────────────── */
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  .dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply antialiased;
+    font-family: var(--font-sans);
+  }
+
+  /* Light mode defaults */
+  body {
+    background-color: #f8fafc;
+    color: #0f172a;
+  }
+
+  .dark body {
+    background-color: #0f172a;
+    color: #f1f5f9;
+  }
+
+  /* Focus styles */
+  *:focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand-500;
+  }
+
+  /* Selection */
+  ::selection {
+    @apply bg-brand-200 text-brand-900;
+  }
+
+  .dark ::selection {
+    @apply bg-brand-700 text-white;
+  }
+}
+
+/* ─── Scrollbar ───────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 rounded-full;
+}
+.dark ::-webkit-scrollbar-thumb {
+  @apply bg-gray-600;
+}
+
+/* ─── Animations ──────────────────────────────────────── */
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+.animate-slide-up {
+  animation: slideUp 0.4s ease-out forwards;
+}
+.animate-pulse-soft {
+  animation: pulse-soft 2s ease-in-out infinite;
+}
+.animate-spin-slow {
+  animation: spin-slow 1.5s linear infinite;
+}
+
+/* ─── Glass Effect ────────────────────────────────────── */
+
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.dark .glass {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+}
+
+/* ─── Button Styles ───────────────────────────────────── */
+
+.btn,
+.btn-primary,
+.btn-secondary,
+.btn-danger,
+.btn-ghost {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl font-semibold
+         transition-all duration-200 cursor-pointer
+         focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500
+         disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-primary {
+  @apply bg-gradient-to-r from-brand-500 to-brand-600 text-white
+         shadow-lg shadow-brand-500/25
+         hover:from-brand-600 hover:to-brand-700 hover:shadow-xl hover:shadow-brand-500/30
+         hover:-translate-y-0.5 active:translate-y-0;
+}
+.btn-secondary {
+  @apply bg-white text-gray-700 border border-gray-200
+         hover:bg-gray-50 hover:border-gray-300 hover:shadow-md hover:-translate-y-0.5;
+}
+.dark .btn-secondary {
+  @apply bg-slate-800 text-slate-200 border-slate-600
+         hover:bg-slate-700 hover:border-slate-500;
+}
+.btn-danger {
+  @apply bg-red-500 text-white hover:bg-red-600;
+}
+.btn-ghost {
+  @apply bg-transparent text-gray-600 hover:bg-gray-100;
+}
+.dark .btn-ghost {
+  @apply text-slate-300 hover:bg-slate-700;
+}
+
+.btn-sm {
+  @apply px-3 py-1.5 text-sm;
+}
+.btn-md {
+  @apply px-5 py-2.5 text-sm;
+}
+.btn-lg {
+  @apply px-6 py-3 text-base;
+}
+.btn-xl {
+  @apply px-8 py-4 text-lg;
+}
+
+/* ─── Card ────────────────────────────────────────────── */
+
+.card,
+.card-hover {
+  @apply bg-white rounded-2xl border border-gray-100 shadow-sm transition-all duration-200;
+}
+.dark .card,
+.dark .card-hover {
+  @apply bg-slate-800 border-slate-700;
+}
+.card-hover {
+  @apply hover:shadow-lg hover:-translate-y-1 hover:border-brand-200;
+}
+.dark .card-hover {
+  @apply hover:border-brand-700;
+}
+
+/* ─── Input ───────────────────────────────────────────── */
+
+.input {
+  @apply w-full rounded-xl border border-gray-200 bg-white px-4 py-3
+         text-gray-900 placeholder-gray-400
+         transition-all duration-200
+         focus:border-brand-400 focus:ring-4 focus:ring-brand-100 focus:outline-none;
+}
+.dark .input {
+  @apply border-slate-600 bg-slate-800 text-slate-100 placeholder-slate-400
+         focus:border-brand-500 focus:ring-brand-900/30;
+}
+
+/* ─── Image Card ──────────────────────────────────────── */
+
+.image-card {
+  @apply relative rounded-xl overflow-hidden bg-gray-100 border-2 border-transparent
+         transition-all duration-200 cursor-grab active:cursor-grabbing
+         hover:border-brand-300 hover:shadow-lg;
+}
+.dark .image-card {
+  @apply bg-slate-700 hover:border-brand-500;
+}
+.image-card.dragging {
+  @apply opacity-50 scale-95 border-brand-400 shadow-2xl z-50;
+}
+
+/* ─── Badge ───────────────────────────────────────────── */
+
+.badge,
+.badge-brand {
+  @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5
+         text-xs font-medium;
+}
+.badge-brand {
+  @apply bg-brand-100 text-brand-700;
+}
+.dark .badge-brand {
+  @apply bg-brand-900/40 text-brand-300;
+}
+
+
+/* ─── Tooltip on small screens ────────────────────────── */
+
+@media (max-width: 640px) {
+  .tooltip-text {
+    display: none;
+  }
+}
+
+/* ─── Drag Overlay ────────────────────────────────────── */
+
+.drag-overlay {
+  @apply fixed inset-0 z-50 flex items-center justify-center
+         bg-brand-500/10 border-2 border-dashed border-brand-400
+         rounded-2xl backdrop-blur-sm;
+}
+
+/* ─── Progress Bar ────────────────────────────────────── */
+
+.progress-bar {
+  @apply h-2 rounded-full bg-gray-200 overflow-hidden;
+}
+.dark .progress-bar {
+  @apply bg-slate-700;
+}
+.progress-fill {
+  @apply h-full rounded-full bg-gradient-to-r from-brand-500 to-brand-400
+         transition-all duration-300 ease-out;
+}

@@ -1,0 +1,48 @@
+# Render Blueprint specification for Post2PDF
+# https://render.com/docs/blueprint-spec
+
+services:
+  # ─── FastAPI Python Backend ──────────────────────────────────────
+  - type: web
+    name: post2pdf-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: FRONTEND_URL
+        sync: false
+      - key: MAX_IMAGE_SIZE_MB
+        value: "15"
+      - key: MAX_IMAGES
+        value: "100"
+      - key: MAX_TOTAL_UPLOAD_MB
+        value: "100"
+      - key: FACEBOOK_REQUEST_TIMEOUT
+        value: "15"
+      - key: RATE_LIMIT_REQUESTS
+        value: "30"
+      - key: RATE_LIMIT_WINDOW_SECONDS
+        value: "60"
+
+  # ─── React Vite Frontend (Static Site) ──────────────────────────
+  - type: web
+    name: post2pdf-frontend
+    runtime: static
+    rootDir: frontend
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        sync: false

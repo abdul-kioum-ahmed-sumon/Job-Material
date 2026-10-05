@@ -1,0 +1,28 @@
+# Node / Frontend
+**/node_modules/
+**/dist/
+**/dist-ssr/
+*.local
+.npm
+
+# Python / Backend
+**/__pycache__/
+*.py[cod]
+*$py.class
+**/.venv/
+**/venv/
+**/.env
+*.env
+**/.pytest_cache/
+
+# Logs & Temp
+*.log
+/tmp/
+temp/
+scratch/
+
+# OS & Editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
