@@ -12,6 +12,7 @@ If Facebook blocks access, it returns a clear error for the frontend to handle.
 
 import re
 import json
+import base64
 import logging
 from typing import Optional
 from urllib.parse import urlparse, quote_plus
@@ -414,7 +415,7 @@ def extract_public_image_urls(html: str, post_url: str = "") -> list[ImageInfo]:
                 clean_url = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), clean_url)
                 clean_url = clean_url.rstrip('\\"\'')
 
-                # Skip non-image assets, script bundles, stylesheets, and vector keyframe animations (.kf)
+                # Skip non-image assets, script bundles, stylesheets, vector animations, and stickers
                 if any(skip in clean_url.lower() for skip in [
                     ".js",
                     ".css",
@@ -423,6 +424,8 @@ def extract_public_image_urls(html: str, post_url: str = "") -> list[ImageInfo]:
                     "keyframes",
                     "rsrc.php",
                     "emoji.php",
+                    "t39.1997-",
+                    "1997-6",
                 ]):
                     continue
 
@@ -534,19 +537,156 @@ def _deduplicate_images(images: list[ImageInfo]) -> list[ImageInfo]:
     return list(seen.values())
 
 
+async def _fetch_graphql_album_photos(
+    token: str,
+    post_html: str,
+    ms_html: str,
+    max_photos: int = 200,
+) -> list[str]:
+    """
+    Fetch all photos in a Facebook album/mediaset using Facebook's GraphQL API.
+
+    Facebook caps server-side rendered HTML to ~24 photos. When an album has
+    25 to 100+ photos, Facebook's web client uses Relay GraphQL connections:
+    1. Reads the LSD security token from the HTML.
+    2. Queries CometPhotoAlbumQuery (doc_id: 27577656621909804) for batch 1.
+    3. If has_next_page is True, iterates CometAlbumPhotoCollagePaginationQuery
+       (doc_id: 28307570635543090) with the end_cursor to retrieve all remaining pages.
+
+    Returns pure photo IDs directly from Photo media nodes (excludes all avatars and non-photo IDs).
+    """
+    googlebot_ua = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+    headers = {
+        "User-Agent": googlebot_ua,
+        "Accept": "*/*",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": "https://www.facebook.com",
+        "Referer": f"https://www.facebook.com/media/set/?set={token}&type=1",
+    }
+
+    # Extract LSD token
+    lsd_match = re.search(r'"LSD",\[\],\{"token":"([^"]+)"\}', ms_html) or re.search(r'"LSD",\[\],\{"token":"([^"]+)"\}', post_html)
+    lsd = lsd_match.group(1) if lsd_match else ""
+    if not lsd:
+        logger.warning("No LSD token found for Facebook GraphQL request")
+        return []
+
+    graphql_url = "https://www.facebook.com/api/graphql/"
+    all_photo_ids: list[str] = []
+    seen: set[str] = set()
+    cursor: Optional[str] = None
+    has_next: bool = False
+
+    async with httpx.AsyncClient(timeout=FACEBOOK_REQUEST_TIMEOUT, follow_redirects=True) as client:
+        # 1. First batch via CometPhotoAlbumQuery
+        idx = ms_html.find('"queryName":"CometPhotoAlbumQuery"')
+        if idx != -1:
+            try:
+                start = ms_html.rfind('{"actorID"', 0, idx)
+                end = ms_html.find('}', idx) + 1
+                query_info = json.loads(ms_html[start:end])
+                doc_id = query_info.get("queryID", "27577656621909804")
+                variables = query_info.get("variables", {})
+
+                resp1 = await client.post(graphql_url, headers=headers, data={
+                    "doc_id": doc_id,
+                    "variables": json.dumps(variables),
+                    "lsd": lsd,
+                })
+
+                if resp1.status_code == 200:
+                    for line in resp1.text.strip().split("\n"):
+                        try:
+                            chunk = json.loads(line)
+                            if "data" in chunk and "album" in chunk["data"]:
+                                media = chunk["data"]["album"].get("media", {})
+                                edges = media.get("edges", [])
+                                page_info = media.get("page_info", {})
+                                if page_info:
+                                    has_next = page_info.get("has_next_page", False)
+                                    cursor = page_info.get("end_cursor")
+                                for edge in edges:
+                                    node = edge.get("node", {})
+                                    pid = node.get("id")
+                                    if pid and pid not in seen:
+                                        seen.add(pid)
+                                        all_photo_ids.append(pid)
+                        except Exception:
+                            pass
+            except Exception as e:
+                logger.warning(f"Error querying CometPhotoAlbumQuery batch 1: {e}")
+
+        # Fallback to initial cursor from ms_html if CometPhotoAlbumQuery didn't populate cursor
+        if not cursor:
+            cursor_match = re.search(r'"end_cursor":"([^"]+)"', ms_html)
+            has_next_match = re.search(r'"has_next_page":(true|false)', ms_html)
+            cursor = cursor_match.group(1) if cursor_match else None
+            has_next = (has_next_match.group(1) == "true") if has_next_match else False
+
+        mediaset_id = base64.b64encode(f"mediaset:{token}".encode("utf-8")).decode("utf-8")
+        pagination_doc_id = "28307570635543090"
+
+        # 2. Iterate remaining pages via CometAlbumPhotoCollagePaginationQuery
+        page = 1
+        while has_next and cursor and len(all_photo_ids) < max_photos and page < 25:
+            page += 1
+            var_page = {
+                "count": 50,
+                "cursor": cursor,
+                "id": mediaset_id,
+                "scale": 1,
+                "renderLocation": "permalink",
+                "__relay_internal__pv__GHLShouldChangeSponsoredDataFieldNamerelayprovider": False,
+            }
+            try:
+                resp = await client.post(graphql_url, headers=headers, data={
+                    "doc_id": pagination_doc_id,
+                    "variables": json.dumps(var_page),
+                    "lsd": lsd,
+                })
+
+                has_next = False
+                cursor = None
+
+                if resp.status_code == 200:
+                    for line in resp.text.strip().split("\n"):
+                        try:
+                            chunk = json.loads(line)
+                            if "data" in chunk and "node" in chunk["data"]:
+                                media = chunk["data"]["node"].get("media", {})
+                                edges = media.get("edges", [])
+                                page_info = media.get("page_info", {})
+                                if page_info:
+                                    has_next = page_info.get("has_next_page", False)
+                                    cursor = page_info.get("end_cursor")
+                                for edge in edges:
+                                    node = edge.get("node", {})
+                                    pid = node.get("id")
+                                    if pid and pid not in seen:
+                                        seen.add(pid)
+                                        all_photo_ids.append(pid)
+                        except Exception:
+                            pass
+            except Exception as e:
+                logger.warning(f"Error querying album pagination page {page}: {e}")
+                break
+
+    logger.info(f"GraphQL album pagination complete: {len(all_photo_ids)} photo IDs collected")
+    return all_photo_ids
+
+
 async def import_facebook_images(url: str) -> FacebookImportResponse:
     """
     Main entry point: attempt to import images from a public Facebook post.
 
     This function:
     1. Validates the URL
-    2. Fetches public page HTML with Googlebot headers (retrieves full SSR photo attachments)
-    3. Extracts ALL photo IDs from embedded JSON (photo_attachments_list, edges, relay data, etc.)
-    4. Generates high-res lookaside URLs for every discovered photo ID
-    5. Also extracts CDN image URLs and merges with lookaside-based results
+    2. Fetches public page HTML with Googlebot headers
+    3. Identifies mediaset tokens for multi-photo albums
+    4. Uses Facebook GraphQL API with Relay pagination to retrieve ALL photos (up to 75+)
+    5. Falls back to SSR photo ID extraction and CDN images for single/smaller posts
     6. Filters out author avatars, commenter profile pics, and group headers
-    7. Explores media set / album links to retrieve additional images
-    8. Returns clean, high-resolution study material photos
+    7. Returns clean, high-resolution study material photos
     """
     is_valid, error_msg = validate_facebook_url(url)
     if not is_valid:
@@ -564,15 +704,7 @@ async def import_facebook_images(url: str) -> FacebookImportResponse:
             message=fetch_error or "Facebook prevented automatic image retrieval for this post. You can upload the post images manually instead.",
         )
 
-    # 1. Extract ALL photo IDs from the post HTML (comprehensive extraction)
-    all_photo_ids = extract_photo_attachment_ids(html)
-    excluded_ids = extract_non_photo_ids(html, url)
-
-    # 2. Extract direct CDN images from the post HTML
-    cdn_images = extract_public_image_urls(html, url)
-
-    # 3. Check if this post is a multi-photo album with an expected count
-    #    Look in multiple JSON patterns for the expected photo count
+    # 1. Identify expected photo count if present
     sub_counts = []
     for pattern in [
         r'"(?:all_subattachments|subattachments)"\s*:\s*\{\s*"count"\s*:\s*(\d+)',
@@ -587,80 +719,74 @@ async def import_facebook_images(url: str) -> FacebookImportResponse:
                 pass
     expected_count = max(sub_counts) if sub_counts else None
 
-    # 4. Build lookaside URLs from ALL discovered photo IDs that aren't already present
-    #    This is the key step that recovers images missed by CDN extraction
-    existing_mids = set()
-    for img in cdn_images:
-        mid = _get_media_id_from_url(img.url)
-        if mid:
-            existing_mids.add(mid)
+    # 2. Extract excluded IDs (author, commenter, group, page IDs)
+    excluded_ids = extract_non_photo_ids(html, url)
+    existing_mids: set[str] = set()
+    cdn_images: list[ImageInfo] = []
 
-    for pid in all_photo_ids:
-        if pid not in excluded_ids and pid not in existing_mids:
-            existing_mids.add(pid)
-            clean_url = f"https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id={pid}"
-            cdn_images.append(ImageInfo(
-                url=clean_url,
-                preview_url=f"/api/images/proxy?url={quote_plus(clean_url)}",
-            ))
+    # 3. Detect mediaset tokens for album / multi-photo posts
+    mediaset_tokens: list[str] = []
+    for token in re.findall(r'"mediaset_token"\s*:\s*"([^"]+)"', html):
+        if token not in mediaset_tokens:
+            mediaset_tokens.append(token)
+    for match in re.findall(r'set=(?:pcb|gm|a)\.(\d+)', html.replace(r"\/", "/")):
+        cand = f"pcb.{match}"
+        if cand not in mediaset_tokens:
+            mediaset_tokens.append(cand)
+    pid_matches = re.findall(r'/(?:posts|permalink|story_fbid)[/=](\d+)', url)
+    if pid_matches:
+        cand = f"pcb.{pid_matches[0]}"
+        if cand not in mediaset_tokens:
+            mediaset_tokens.append(cand)
 
-    logger.info(
-        f"Post extraction: {len(all_photo_ids)} photo IDs found, "
-        f"{len(cdn_images)} total images after lookaside generation, "
-        f"expected={expected_count}"
-    )
-
-    # 5. If an album exists or more photos are expected, check media set URLs
-    current_unique = len(_deduplicate_images(cdn_images))
-    need_more = expected_count and current_unique < expected_count
-
-    media_set_urls = _extract_media_set_urls(html, url)
-
-    # Also try alternate media set prefixes (gm for group media, a for album)
-    if need_more and media_set_urls:
-        base_urls = list(media_set_urls)
-        for ms_url in base_urls:
-            for prefix in ["gm", "a"]:
-                alt = re.sub(r'set=(?:pcb|gm|a)\.', f'set={prefix}.', ms_url)
-                if alt not in media_set_urls:
-                    media_set_urls.append(alt)
-
-    if media_set_urls:
-        for ms_url in media_set_urls:
+    # 4. Use Facebook GraphQL Album Pagination if mediaset token exists
+    graphql_photo_ids: list[str] = []
+    if mediaset_tokens:
+        for token in mediaset_tokens:
+            ms_url = f"https://www.facebook.com/media/set/?set={token}&type=1"
             try:
                 ms_html, _ = await fetch_public_page(ms_url)
                 if ms_html:
-                    # Extract photo IDs from the media set page too
-                    ms_photo_ids = extract_photo_attachment_ids(ms_html)
-                    ms_excluded = extract_non_photo_ids(ms_html, ms_url)
-
-                    for pid in ms_photo_ids:
-                        if pid not in ms_excluded and pid not in excluded_ids and pid not in existing_mids:
-                            existing_mids.add(pid)
-                            clean_url = f"https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id={pid}"
-                            cdn_images.append(ImageInfo(
-                                url=clean_url,
-                                preview_url=f"/api/images/proxy?url={quote_plus(clean_url)}",
-                            ))
-
-                    # Also extract CDN images from the media set page
-                    ms_images = extract_public_image_urls(ms_html, ms_url)
-                    existing_urls = {img.url for img in cdn_images}
-
-                    for img in ms_images:
-                        mid = _get_media_id_from_url(img.url)
-                        if mid:
-                            if mid not in existing_mids:
-                                existing_mids.add(mid)
-                                cdn_images.append(img)
-                        elif img.url not in existing_urls:
-                            existing_urls.add(img.url)
-                            cdn_images.append(img)
-
-                    if expected_count and len(_deduplicate_images(cdn_images)) >= expected_count:
+                    pids = await _fetch_graphql_album_photos(token, html, ms_html)
+                    if pids:
+                        graphql_photo_ids = pids
                         break
             except Exception as e:
-                logger.warning(f"Error fetching media set URL {ms_url}: {e}")
+                logger.warning(f"Error fetching mediaset {token}: {e}")
+
+    if graphql_photo_ids:
+        logger.info(f"GraphQL album fetch recovered {len(graphql_photo_ids)} photos")
+        for pid in graphql_photo_ids:
+            if pid not in excluded_ids and pid not in existing_mids:
+                existing_mids.add(pid)
+                clean_url = f"https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id={pid}"
+                cdn_images.append(ImageInfo(
+                    url=clean_url,
+                    preview_url=f"/api/images/proxy?url={quote_plus(clean_url)}",
+                ))
+
+    # 5. Complement with direct SSR photo extraction if GraphQL did not find photos or fewer photos than expected
+    if not graphql_photo_ids or (expected_count and len(cdn_images) < expected_count):
+        all_photo_ids = extract_photo_attachment_ids(html)
+        direct_images = extract_public_image_urls(html, url)
+
+        for img in direct_images:
+            mid = _get_media_id_from_url(img.url)
+            if mid:
+                if mid not in existing_mids and mid not in excluded_ids:
+                    existing_mids.add(mid)
+                    cdn_images.append(img)
+            else:
+                cdn_images.append(img)
+
+        for pid in all_photo_ids:
+            if pid not in excluded_ids and pid not in existing_mids:
+                existing_mids.add(pid)
+                clean_url = f"https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id={pid}"
+                cdn_images.append(ImageInfo(
+                    url=clean_url,
+                    preview_url=f"/api/images/proxy?url={quote_plus(clean_url)}",
+                ))
 
     # 6. Only use Open Graph image as a last-resort fallback if NO post photos were found
     if not cdn_images:

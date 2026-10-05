@@ -8,7 +8,7 @@ FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 # Upload limits
 MAX_IMAGE_SIZE_MB: int = int(os.getenv("MAX_IMAGE_SIZE_MB", "15"))
-MAX_IMAGES: int = int(os.getenv("MAX_IMAGES", "100"))
+MAX_IMAGES: int = int(os.getenv("MAX_IMAGES", "200"))
 MAX_TOTAL_UPLOAD_MB: int = int(os.getenv("MAX_TOTAL_UPLOAD_MB", "100"))
 
 # Computed byte limits
