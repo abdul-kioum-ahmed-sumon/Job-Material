@@ -46,6 +46,30 @@ class TestSecurityUtils(unittest.TestCase):
         self.assertEqual(sanitize_filename("my file (1).pdf"), "my file _1_.pdf")
 
 
+class TestFacebookImporterUtils(unittest.TestCase):
+    def test_extract_media_set_urls(self):
+        from app.services.facebook_importer import _extract_media_set_urls
+        html_sample = (
+            '{"mediaset_token":"pcb.1103012279131150","url":"https:\\/\\/www.facebook.com\\/media\\/set\\/?set=pcb.1103012279131150&type=1"}'
+            '<meta property="og:url" content="https://www.facebook.com/groups/409050615193990/posts/1103012279131150/" />'
+        )
+        urls = _extract_media_set_urls(html_sample, "https://www.facebook.com/groups/409050615193990/posts/1103012255797819/")
+        self.assertTrue(any("pcb.1103012279131150" in u for u in urls))
+        self.assertTrue(any("pcb.1103012255797819" in u for u in urls))
+
+    def test_deduplicate_images(self):
+        from app.models.schemas import ImageInfo
+        from app.services.facebook_importer import _deduplicate_images
+        imgs = [
+            ImageInfo(url="https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=4767285823556183"),
+            ImageInfo(url="https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=4767285823556183"),
+            ImageInfo(url="https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=4767285833556182"),
+        ]
+        deduped = _deduplicate_images(imgs)
+        self.assertEqual(len(deduped), 2)
+
+
+
 class TestAPIEndpoints(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)

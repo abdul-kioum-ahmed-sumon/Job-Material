@@ -20,6 +20,7 @@
 /tmp/
 temp/
 scratch/
+downloaded_material/
 
 # OS & Editors
 .DS_Store

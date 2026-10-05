@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { FileDown, Trash2, ArrowUp } from 'lucide-react';
 import ImportSection from '../components/ImportSection';
 import ImageGrid from '../components/ImageGrid';
@@ -20,6 +20,23 @@ export default function HomePage() {
     reorderImages,
     clearImages,
   } = useImages();
+
+  // Support 1-click import from browser bookmarklet via ?import_urls= query param
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const importUrlsParam = params.get('import_urls');
+    if (importUrlsParam) {
+      try {
+        const rawUrls = JSON.parse(decodeURIComponent(importUrlsParam));
+        if (Array.isArray(rawUrls) && rawUrls.length > 0) {
+          addFacebookImages(rawUrls.map((u: string) => ({ url: u })));
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      } catch (err) {
+        console.error('Failed to parse import_urls query parameter:', err);
+      }
+    }
+  }, [addFacebookImages]);
 
   const [settings, setSettings] = useState<PDFSettings>({
     pageSize: 'a4',

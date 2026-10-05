@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { Upload, Link as LinkIcon, Loader2, AlertCircle, Info } from 'lucide-react';
 import { importFacebookImages } from '../services/facebook';
 import { isFacebookUrl } from '../utils';
@@ -19,6 +19,14 @@ export default function ImportSection({
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlParam = params.get('url');
+    if (urlParam) {
+      setFbUrl(urlParam);
+    }
+  }, []);
 
   const handleFacebookFetch = useCallback(async () => {
     if (!fbUrl.trim()) {
