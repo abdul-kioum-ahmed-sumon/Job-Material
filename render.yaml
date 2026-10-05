@@ -9,14 +9,12 @@ services:
     plan: free
     region: oregon
     buildCommand: |
-      npm --prefix post2pdf/frontend install && npm --prefix post2pdf/frontend run build && pip install -r post2pdf/backend/requirements.txt
+      pip install -r post2pdf/backend/requirements.txt
     startCommand: cd post2pdf/backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
-      - key: NODE_VERSION
-        value: 22.12.0
       - key: MAX_IMAGE_SIZE_MB
         value: "15"
       - key: MAX_IMAGES
