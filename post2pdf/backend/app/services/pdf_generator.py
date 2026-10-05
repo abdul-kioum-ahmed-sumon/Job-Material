@@ -91,29 +91,43 @@ def _fix_orientation(img: PILImage.Image) -> PILImage.Image:
 
 
 async def _load_image_from_url(url: str) -> Optional[PILImage.Image]:
-    """Download and load an image from a URL."""
+    """Download and load an image from a URL with multiple crawler/browser header fallbacks."""
     if not is_safe_image_url(url):
         logger.warning(f"Unsafe image URL rejected: {url}")
         return None
 
-    try:
-        headers = {
+    headers_list = [
+        {
             "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
             "Accept": "image/*,*/*;q=0.8",
-        }
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            response = await client.get(url, headers=headers)
-            if response.status_code != 200:
-                logger.warning(f"Failed to download image: {url} (status {response.status_code})")
-                return None
+            "Referer": "https://www.facebook.com/",
+        },
+        {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Referer": "https://www.facebook.com/",
+        },
+        {
+            "User-Agent": "Twitterbot/1.0",
+            "Accept": "image/*,*/*;q=0.8",
+            "Referer": "https://www.facebook.com/",
+        },
+    ]
 
-            img = PILImage.open(io.BytesIO(response.content))
-            img = _fix_orientation(img)
-            return img
+    for headers in headers_list:
+        try:
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                response = await client.get(url, headers=headers)
+                if response.status_code == 200 and len(response.content) > 100:
+                    img = PILImage.open(io.BytesIO(response.content))
+                    img = _fix_orientation(img)
+                    return img
+                logger.warning(f"Download attempt returned status {response.status_code} for {url[:70]}")
+        except Exception as e:
+            logger.warning(f"Error downloading image from URL: {e}")
 
-    except Exception as e:
-        logger.error(f"Error loading image from URL {url}: {e}")
-        return None
+    logger.error(f"All download attempts failed for image URL: {url[:70]}")
+    return None
 
 
 def _load_image_from_base64(data: str) -> Optional[PILImage.Image]:

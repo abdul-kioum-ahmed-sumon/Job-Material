@@ -223,6 +223,7 @@ async def proxy_image(url: str):
         headers = {
             "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
             "Accept": "image/*,*/*;q=0.8",
+            "Referer": "https://www.facebook.com/",
         }
         async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
             resp = await client.get(url, headers=headers)

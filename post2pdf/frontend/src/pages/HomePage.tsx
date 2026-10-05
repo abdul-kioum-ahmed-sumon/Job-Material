@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { FileDown, Sparkles, SlidersHorizontal } from 'lucide-react';
+import { FileDown, Sparkles, SlidersHorizontal, AlertCircle } from 'lucide-react';
 import ImportSection from '../components/ImportSection';
 import ImageGrid from '../components/ImageGrid';
 import PDFSettingsPanel from '../components/PDFSettingsPanel';
@@ -61,6 +61,7 @@ export default function HomePage() {
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [pdfPageCount, setPdfPageCount] = useState(0);
   const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   const settingsRef = useRef<HTMLDivElement>(null);
 
@@ -69,6 +70,7 @@ export default function HomePage() {
 
     setGenerating(true);
     setPdfReady(false);
+    setGenerateError(null);
     setProgress({
       active: true,
       current: 0,
@@ -115,6 +117,8 @@ export default function HomePage() {
       );
     } catch (err) {
       console.error('PDF generation error:', err);
+      const message = err instanceof Error ? err.message : 'Failed to generate PDF.';
+      setGenerateError(message);
       setProgress({ active: false, current: 0, total: 0, stage: 'preparing', message: '' });
       setPdfReady(false);
     } finally {
@@ -171,6 +175,31 @@ export default function HomePage() {
 
           {/* Standalone Primary Generate Button */}
           <div className="flex flex-col items-center justify-center gap-3 pt-4">
+            {generateError && (
+              <div
+                className="w-full max-w-xl p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 flex items-start gap-3 text-left animate-fade-in"
+                role="alert"
+              >
+                <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-xs font-bold text-red-800 dark:text-red-200">
+                    PDF Generation Error
+                  </h4>
+                  <p className="text-xs text-red-700 dark:text-red-300 mt-0.5">
+                    {generateError}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setGenerateError(null)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs p-1"
+                  aria-label="Dismiss error"
+                >
+                  &times;
+                </button>
+              </div>
+            )}
+
             <button
               onClick={handleGenerate}
               disabled={images.length === 0 || generating}

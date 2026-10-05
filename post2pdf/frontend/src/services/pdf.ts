@@ -15,9 +15,10 @@ const MARGINS: Record<string, number> = {
 };
 
 /**
- * Load an image and return as base64 data URL.
+ * Load an image (file, proxy URL, or CDN URL) and return as a real base64 data URL.
  */
-async function imageToDataUrl(image: ImportedImage): Promise<string> {
+export async function imageToDataUrl(image: ImportedImage): Promise<string> {
+  // Case 1: Local File object
   if (image.file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -26,10 +27,60 @@ async function imageToDataUrl(image: ImportedImage): Promise<string> {
       reader.readAsDataURL(image.file!);
     });
   }
-  if (image.previewUrl) {
+
+  // Case 2: Already a base64 data URL
+  if (image.previewUrl && image.previewUrl.startsWith('data:')) {
     return image.previewUrl;
   }
-  throw new Error('No image data available');
+
+  // Case 3: Fetch image as blob from previewUrl (proxy) or url and convert to base64
+  const candidates = [image.previewUrl, image.url].filter(Boolean) as string[];
+  for (const url of candidates) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        const blob = await response.blob();
+        return await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+    } catch (e) {
+      console.warn(`Direct fetch failed for ${url}:`, e);
+    }
+  }
+
+  // Case 4: Canvas rendering fallback with crossOrigin
+  for (const url of candidates) {
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth || img.width;
+            canvas.height = img.naturalHeight || img.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return reject(new Error('Canvas context not available'));
+            ctx.drawImage(img, 0, 0);
+            resolve(canvas.toDataURL('image/jpeg', 0.95));
+          } catch (err) {
+            reject(err);
+          }
+        };
+        img.onerror = () => reject(new Error(`Image element failed to load from ${url}`));
+        img.src = url;
+      });
+      return dataUrl;
+    } catch (e) {
+      console.warn(`Canvas extraction failed for ${url}:`, e);
+    }
+  }
+
+  throw new Error(`Unable to load image data for image #${image.order}`);
 }
 
 /**
@@ -40,7 +91,7 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('Failed to load image'));
+    img.onerror = () => reject(new Error('Failed to load image element'));
     img.src = dataUrl;
   });
 }
@@ -98,7 +149,7 @@ export async function generatePDFClientSide(
     pageW = 210;
     pageH = 297;
   } else {
-    [pageW, pageH] = PAGE_SIZES[settings.pageSize];
+    [pageW, pageH] = PAGE_SIZES[settings.pageSize] || PAGE_SIZES.a4;
   }
 
   const doc = new jsPDF({
@@ -109,6 +160,7 @@ export async function generatePDFClientSide(
 
   let pageAdded = false;
   let imgIdx = 0;
+  let processedCount = 0;
 
   while (imgIdx < sorted.length) {
     if (pageAdded) {
@@ -204,12 +256,17 @@ export async function generatePDFClientSide(
         const y = slot.y + (slot.h - drawH) / 2;
 
         doc.addImage(finalDataUrl, 'JPEG', x, y, drawW, drawH);
+        processedCount++;
       } catch (err) {
-        console.error(`Failed to process image ${imgIdx}:`, err);
+        console.error(`Failed to process image ${imgIdx + 1}:`, err);
       }
 
       imgIdx++;
     }
+  }
+
+  if (processedCount === 0) {
+    throw new Error('Failed to render images into the PDF. Please check if the images are accessible.');
   }
 
   onProgress?.(sorted.length, sorted.length, 'generating');
@@ -219,7 +276,7 @@ export async function generatePDFClientSide(
 }
 
 /**
- * Generate PDF server-side (for remote images).
+ * Generate PDF server-side.
  */
 export async function generatePDFServerSide(
   images: ImportedImage[],
@@ -228,7 +285,7 @@ export async function generatePDFServerSide(
 ): Promise<Blob> {
   const sorted = [...images].sort((a, b) => a.order - b.order);
 
-  // Convert images to base64 for sending
+  // Convert images to base64 for reliable transmission without server-side CDN blocking
   const imageItems = [];
   for (let i = 0; i < sorted.length; i++) {
     const image = sorted[i];
@@ -237,10 +294,10 @@ export async function generatePDFServerSide(
     let imageData: string | undefined;
     let url: string | undefined;
 
-    if (image.file) {
+    try {
       imageData = await imageToDataUrl(image);
-    } else if (image.url) {
-      url = image.url;
+    } catch {
+      url = image.url || image.previewUrl;
     }
 
     imageItems.push({
@@ -271,17 +328,32 @@ export async function generatePDFServerSide(
 }
 
 /**
- * Smart PDF generation: use client-side for local files, server-side for remote.
+ * Smart PDF generation: tries fast client-side rendering first,
+ * with automatic server-side fallback if needed.
  */
 export async function generatePDF(
   images: ImportedImage[],
   settings: PDFSettings,
   onProgress?: (current: number, total: number, stage: string) => void
 ): Promise<Blob> {
-  const hasRemoteImages = images.some((img) => img.source === 'facebook' && !img.file);
-
-  if (hasRemoteImages) {
-    return generatePDFServerSide(images, settings, onProgress);
+  if (images.length === 0) {
+    throw new Error('No images selected to generate PDF.');
   }
-  return generatePDFClientSide(images, settings, onProgress);
+
+  // 1. Try client-side generation first
+  try {
+    return await generatePDFClientSide(images, settings, onProgress);
+  } catch (clientErr) {
+    console.warn('Client-side PDF generation encountered an error, falling back to server-side:', clientErr);
+
+    // 2. Fall back to server-side generation
+    try {
+      return await generatePDFServerSide(images, settings, onProgress);
+    } catch (serverErr) {
+      console.error('Server-side PDF generation fallback also failed:', serverErr);
+      const clientMsg = clientErr instanceof Error ? clientErr.message : String(clientErr);
+      const serverMsg = serverErr instanceof Error ? serverErr.message : String(serverErr);
+      throw new Error(clientMsg || serverMsg || 'Failed to generate PDF. Please try again.');
+    }
+  }
 }
