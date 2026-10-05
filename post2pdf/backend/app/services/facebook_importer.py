@@ -334,8 +334,24 @@ def extract_public_image_urls(html: str, post_url: str = "") -> list[ImageInfo]:
                 clean_url = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), clean_url)
                 clean_url = clean_url.rstrip('\\"\'')
 
-                # Skip non-image assets, script bundles, and stylesheets
-                if any(skip in clean_url.lower() for skip in [".js", ".css", "rsrc.php", "emoji.php"]):
+                # Skip non-image assets, script bundles, stylesheets, and vector keyframe animations (.kf)
+                if any(skip in clean_url.lower() for skip in [
+                    ".js",
+                    ".css",
+                    ".kf",
+                    "/m1/v/t6/",
+                    "keyframes",
+                    "rsrc.php",
+                    "emoji.php",
+                ]):
+                    continue
+
+                # Ensure CDN URL is a real photo (has image extension or standard timeline/album photo path -6/-9/-4)
+                is_photo = (
+                    any(ext in clean_url.lower() for ext in [".jpg", ".jpeg", ".png", ".webp"])
+                    or bool(re.search(r'/v/t\d+\.\d+-(?:6|9|4)/', clean_url))
+                )
+                if not is_photo:
                     continue
 
                 # Skip profile picture and avatar paths:

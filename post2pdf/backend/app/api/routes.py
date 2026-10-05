@@ -234,6 +234,8 @@ async def proxy_image(url: str):
                     b"<html" in resp.content[:200].lower()
                     or b"<!doctype" in resp.content[:200].lower()
                     or "text/html" in media_type.lower()
+                    or "keyframes" in media_type.lower()
+                    or ".kf" in url.lower()
                 ):
                     raise HTTPException(status_code=404, detail="Resource is not a valid image.")
 
