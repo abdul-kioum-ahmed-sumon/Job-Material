@@ -68,6 +68,29 @@ class TestFacebookImporterUtils(unittest.TestCase):
         deduped = _deduplicate_images(imgs)
         self.assertEqual(len(deduped), 2)
 
+    def test_extract_non_photo_ids_excludes_avatars(self):
+        from app.services.facebook_importer import extract_non_photo_ids
+        html_sample = (
+            '{"actors":[{"id":"100008244372734"}],"author":{"id":"61581308772117"},"page_id":"1039250258678884"}'
+        )
+        excluded = extract_non_photo_ids(html_sample, "https://www.facebook.com/groups/409050615193990/posts/123")
+        self.assertIn("100008244372734", excluded)
+        self.assertIn("61581308772117", excluded)
+        self.assertIn("1039250258678884", excluded)
+        self.assertIn("409050615193990", excluded)
+
+    def test_extract_photo_attachment_ids(self):
+        from app.services.facebook_importer import extract_photo_attachment_ids
+        html_sample = (
+            '\\"photo_attachments_list\\":[\\"4767285823556183\\",\\"4767285833556182\\"],'
+            '\\"media\\":{\\"__typename\\":\\"Photo\\",\\"id\\":\\"4767285850222847\\"}'
+        )
+        pids = extract_photo_attachment_ids(html_sample)
+        self.assertEqual(len(pids), 3)
+        self.assertIn("4767285823556183", pids)
+        self.assertIn("4767285833556182", pids)
+        self.assertIn("4767285850222847", pids)
+
 
 
 class TestAPIEndpoints(unittest.TestCase):

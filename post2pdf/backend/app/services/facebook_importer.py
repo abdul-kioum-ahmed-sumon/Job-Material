@@ -14,7 +14,7 @@ import re
 import json
 import logging
 from typing import Optional
-from urllib.parse import urlparse, urljoin, quote_plus
+from urllib.parse import urlparse, quote_plus
 
 import httpx
 from bs4 import BeautifulSoup
@@ -25,15 +25,16 @@ from app.utils.security import is_facebook_url, is_valid_url
 
 logger = logging.getLogger(__name__)
 
-# Crawler headers that Facebook permits for public Open Graph link previews
+# Crawler headers that Facebook permits for public Open Graph and SEO indexing.
+# Googlebot receives the full server-side rendered HTML with all photo attachments.
 _CRAWLER_HEADERS = [
     {
-        "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+        "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
     },
     {
-        "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+        "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
     },
@@ -69,7 +70,7 @@ def validate_facebook_url(url: str) -> tuple[bool, str]:
 async def fetch_public_page(url: str) -> tuple[Optional[str], Optional[str]]:
     """
     Fetch a publicly accessible Facebook page using crawler headers.
-    Tries facebookexternalhit, Googlebot, and Twitterbot to retrieve public Open Graph metadata.
+    Tries Googlebot first (which receives full SSR photo listings), then facebookexternalhit and Twitterbot.
 
     Returns:
         (html_content, error_message)
@@ -86,7 +87,7 @@ async def fetch_public_page(url: str) -> tuple[Optional[str], Optional[str]]:
                 try:
                     response = await client.get(url, headers=headers)
                     if response.status_code == 200 and len(response.text) > 1000:
-                        # Prefer responses that are not login pages or already contain images
+                        # Prefer responses that are not login pages or contain photo references
                         if not _is_login_page(response.text) or "lookaside.fbsbx.com" in response.text:
                             return response.text, None
                         last_html = response.text
@@ -115,7 +116,7 @@ async def fetch_public_page(url: str) -> tuple[Optional[str], Optional[str]]:
 
 
 def extract_open_graph_images(html: str) -> list[ImageInfo]:
-    """Extract images from Open Graph meta tags."""
+    """Extract images from Open Graph meta tags (used as fallback only)."""
     images: list[ImageInfo] = []
     try:
         try:
@@ -123,7 +124,6 @@ def extract_open_graph_images(html: str) -> list[ImageInfo]:
         except Exception:
             soup = BeautifulSoup(html, "html.parser")
 
-        # OG image tags
         og_tags = soup.find_all("meta", attrs={"property": re.compile(r"^og:image")})
         seen_urls: set[str] = set()
 
@@ -136,7 +136,6 @@ def extract_open_graph_images(html: str) -> list[ImageInfo]:
                 preview = f"/api/images/proxy?url={quote_plus(content)}" if ("fbsbx.com" in content or "fbcdn" in content) else content
                 img = ImageInfo(url=content, preview_url=preview)
 
-                # Try to find associated width/height
                 for sibling in og_tags:
                     if sibling.get("property") == "og:image:width":
                         try:
@@ -162,18 +161,85 @@ def _get_media_id_from_url(url: str) -> Optional[str]:
     if "media_id=" in url:
         return url.split("media_id=")[-1].split("&")[0]
     parsed = urlparse(url)
-    id_match = re.search(r'(?:^|[^\d])(\d{16,})(?:[^\d]|$)', parsed.path)
+    id_match = re.search(r'(?:^|[^\d])(\d{10,})(?:[^\d]|$)', parsed.path)
     if id_match:
         return id_match.group(1)
     return None
 
 
+def extract_non_photo_ids(html: str, post_url: str = "") -> set[str]:
+    """
+    Find all user IDs, actor IDs, commenter IDs, page IDs, and group IDs.
+    These IDs represent profile pictures, group headers, and avatars which are
+    not actual study material images from the post.
+    """
+    excluded_ids: set[str] = set()
+    clean_html = html.replace(r'\"', '"').replace(r"\/", "/")
+
+    patterns = [
+        r'"actors"\s*:\s*\[\s*\{[^}]*"id"\s*:\s*"(\d+)"',
+        r'"author"\s*:\s*\{[^}]*"id"\s*:\s*"(\d+)"',
+        r'"content_owner_id_new"\s*:\s*"(\d+)"',
+        r'"profile_id"\s*:\s*"(\d+)"',
+        r'"actor_id"\s*:\s*"(\d+)"',
+        r'"page_id"\s*:\s*"(\d+)"',
+        r'"group_id"\s*:\s*"(\d+)"',
+        r'"profile_picture[^"]*"\s*:\s*\{[^}]*"uri"\s*:\s*"[^"]*media_id=(\d+)"',
+        r'"profile_picture_depth_\d+[^"]*"\s*:\s*\{[^}]*"uri"\s*:\s*"[^"]*media_id=(\d+)"',
+    ]
+    for p in patterns:
+        for match in re.findall(p, clean_html):
+            if match and match != '0':
+                excluded_ids.add(match)
+
+    if post_url:
+        for gid in re.findall(r'/groups/(\d+)', post_url):
+            excluded_ids.add(gid)
+
+    for gid in re.findall(r'facebook\.com/(?:groups|pages)/(\d+)', clean_html):
+        excluded_ids.add(gid)
+
+    return excluded_ids
+
+
+def extract_photo_attachment_ids(html: str) -> list[str]:
+    """
+    Extract photo IDs from photo_attachments_list, Photo media nodes, and attachment objects.
+    When a post has 50, 75, or more images, Facebook embeds the complete list of photo IDs
+    in photo_attachments_list.
+    """
+    photo_ids: list[str] = []
+    clean_html = html.replace(r'\"', '"').replace(r"\/", "/")
+
+    def _add(pid: str):
+        if pid and pid.isdigit() and len(pid) >= 10 and pid not in photo_ids:
+            photo_ids.append(pid)
+
+    # 1. photo_attachments_list: ["id1", "id2", ...]
+    for match in re.finditer(r'photo_attachments_list"\s*:\s*\[([^\]]+)\]', clean_html):
+        for pid in re.findall(r'(\d+)', match.group(1)):
+            _add(pid)
+
+    # 2. comet story attachments: "media":{"__typename":"Photo","id":"..."}
+    for match in re.findall(r'"(?:media|target)"\s*:\s*\{"__typename"\s*:\s*"Photo"[^}]*"id"\s*:\s*"(\d+)"', clean_html):
+        _add(match)
+
+    # 3. Direct photo_id fields
+    for match in re.findall(r'"photo_id"\s*:\s*"(\d+)"', clean_html):
+        _add(match)
+
+    # 4. Attachment fbid values
+    for match in re.findall(r'"attachment_fbid"\s*:\s*"(\d+)"', clean_html):
+        _add(match)
+
+    return photo_ids
+
+
 def _extract_media_set_urls(html: str, post_url: str = "") -> list[str]:
     """
     Extract full photo album / media set URLs from post HTML.
-    When a post has more than 5 images, Facebook's post permalink only embeds
-    the first 5 images in the feed collage. The full set is accessible via the
-    media/set URL.
+    When a post has more than 5 images, Facebook's post permalink embeds
+    media set tokens and links to view the full collection.
     """
     found: list[str] = []
 
@@ -213,48 +279,83 @@ def _extract_media_set_urls(html: str, post_url: str = "") -> list[str]:
     return found
 
 
-def extract_public_image_urls(html: str) -> list[ImageInfo]:
+def extract_public_image_urls(html: str, post_url: str = "") -> list[ImageInfo]:
     """
     Extract publicly accessible image URLs from page HTML.
-    Looks for high-resolution Facebook CDN image URLs and crawler media URLs.
-    Handles both raw HTML and JSON-escaped strings (\/).
+    Extracts all photo attachments, lookaside crawler media URLs, and high-res Facebook CDN photos.
+    Excludes non-photo IDs (author avatars, commenter profile pics, group headers/banners).
     """
     images: list[ImageInfo] = []
     seen_urls: set[str] = set()
 
+    # Identify actor and group IDs that should NOT be imported as study sheet photos
+    excluded_ids = extract_non_photo_ids(html, post_url)
+
     try:
-        # 1. Match lookaside crawler media URLs (used in multi-photo public posts)
-        lookaside_pattern = (
-            r'https?(?::\\/\\/|://)lookaside\.fbsbx\.com'
-            r'(?:\\/|/)lookaside(?:\\/|/)crawler(?:\\/|/)media(?:\\/|/)\?media_id=\d+'
-        )
-        for match in re.findall(lookaside_pattern, html, re.IGNORECASE):
-            clean_url = match.replace(r"\/", "/")
-            if clean_url not in seen_urls:
-                media_id = clean_url.split("media_id=")[-1]
-                # Photo media IDs are 16+ digits; profile/user IDs are 15 digits or shorter
-                if len(media_id) >= 16:
+        # 1. Extract photo IDs from photo_attachments_list and Photo media nodes
+        photo_ids = extract_photo_attachment_ids(html)
+        for pid in photo_ids:
+            if pid not in excluded_ids:
+                clean_url = f"https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id={pid}"
+                if clean_url not in seen_urls:
                     seen_urls.add(clean_url)
                     images.append(ImageInfo(
                         url=clean_url,
                         preview_url=f"/api/images/proxy?url={quote_plus(clean_url)}",
                     ))
 
-        # 2. Match Facebook CDN image URLs (scontent / fbcdn)
+        # 2. Match lookaside crawler media URLs from rendered HTML & JSON
+        lookaside_pattern = (
+            r'https?(?::\\/\\/|://)lookaside\.fbsbx\.com'
+            r'(?:\\/|/)lookaside(?:\\/|/)crawler(?:\\/|/)media(?:\\/|/)\?media_id=(\d+)'
+        )
+        for match in re.findall(lookaside_pattern, html, re.IGNORECASE):
+            media_id = match
+            if media_id not in excluded_ids and len(media_id) >= 10:
+                clean_url = f"https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id={media_id}"
+                if clean_url not in seen_urls:
+                    seen_urls.add(clean_url)
+                    images.append(ImageInfo(
+                        url=clean_url,
+                        preview_url=f"/api/images/proxy?url={quote_plus(clean_url)}",
+                    ))
+
+        # 3. Match Facebook CDN image URLs (scontent / fbcdn)
+        # Modern Facebook CDN URLs often lack traditional file extensions (e.g. /m1/v/t6/An... or /v/t39.30808-6/...)
         fb_cdn_patterns = [
-            r'https?(?::\\/\\/|://)scontent[^"\'\\]+\.(?:jpg|jpeg|png|webp)[^"\'\\]*',
-            r'https?(?::\\/\\/|://)external[^"\'\\]+\.(?:jpg|jpeg|png|webp)[^"\'\\]*',
-            r'https?(?::\\/\\/|://)[^"\'\\]*fbcdn[^"\'\\]+\.(?:jpg|jpeg|png|webp)[^"\'\\]*',
+            r'https?(?::\\/\\/|://)scontent[^\s"\'<>\\]+',
+            r'https?(?::\\/\\/|://)[^\s"\'<>\\]*fbcdn\.net[^\s"\'<>\\]+',
         ]
 
         for pattern in fb_cdn_patterns:
-            matches = re.findall(pattern, html, re.IGNORECASE)
+            matches = re.findall(pattern, html.replace(r"\/", "/"), re.IGNORECASE)
             for url in matches:
-                clean_url = url.replace("\\u0025", "%").replace(r"\/", "/")
+                clean_url = url.replace("\\u0025", "%")
                 clean_url = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), clean_url)
+                clean_url = clean_url.rstrip('\\"\'')
 
-                # Skip small thumbnails or emojis
-                if any(skip in clean_url.lower() for skip in ["_t.", "_s.", "_q.", "50x50", "100x100", "rsrc.php"]):
+                # Skip non-image assets, script bundles, and stylesheets
+                if any(skip in clean_url.lower() for skip in [".js", ".css", "rsrc.php", "emoji.php"]):
+                    continue
+
+                # Skip profile picture and avatar paths:
+                # - /t39.30808-1/ and /t1.18169-1/ denote avatar/profile pictures (-1)
+                # - Small thumbnails: 50x50, 100x100, 160x160, 320x320, _s., _t., _q.
+                if any(skip in clean_url.lower() for skip in [
+                    "-1/",
+                    "50x50",
+                    "100x100",
+                    "160x160",
+                    "320x320",
+                    "_t.",
+                    "_s.",
+                    "_q.",
+                ]):
+                    continue
+
+                # Skip if media_id belongs to excluded actor/group list
+                mid = _get_media_id_from_url(clean_url)
+                if mid and mid in excluded_ids:
                     continue
 
                 if clean_url not in seen_urls:
@@ -264,7 +365,7 @@ def extract_public_image_urls(html: str) -> list[ImageInfo]:
                         preview_url=f"/api/images/proxy?url={quote_plus(clean_url)}",
                     ))
 
-        # 3. Parse <img> tags from rendered HTML
+        # 4. Parse <img> tags from rendered HTML
         try:
             soup = BeautifulSoup(html, "lxml")
         except Exception:
@@ -278,12 +379,13 @@ def extract_public_image_urls(html: str) -> list[ImageInfo]:
                 if any(domain in hostname for domain in ["fbcdn", "scontent", "fbsbx"]):
                     width = img_tag.get("width")
                     height = img_tag.get("height")
-                    if width and int(width) < 100:
+                    if width and int(width) < 120:
                         continue
-                    if "lookaside" in src:
-                        mid = src.split("media_id=")[-1]
-                        if len(mid) < 16:
-                            continue
+
+                    mid = _get_media_id_from_url(src)
+                    if mid and mid in excluded_ids:
+                        continue
+
                     seen_urls.add(src)
                     img_info = ImageInfo(
                         url=src,
@@ -342,10 +444,11 @@ async def import_facebook_images(url: str) -> FacebookImportResponse:
 
     This function:
     1. Validates the URL
-    2. Fetches the public page HTML with crawler headers
-    3. Extracts OG and CDN / lookaside image URLs
-    4. If the post is an album (>5 photos), fetches the media/set to retrieve all images
-    5. Returns found images or an appropriate error
+    2. Fetches public page HTML with Googlebot headers (retrieves full SSR photo attachments)
+    3. Extracts photo_attachments_list, Photo media nodes, and CDN image URLs
+    4. Filters out author avatars, commenter profile pics, and group headers
+    5. Explores media set / album links to retrieve all images in multi-photo albums
+    6. Returns clean, high-resolution study material photos
     """
     is_valid, error_msg = validate_facebook_url(url)
     if not is_valid:
@@ -363,25 +466,24 @@ async def import_facebook_images(url: str) -> FacebookImportResponse:
             message=fetch_error or "Facebook prevented automatic image retrieval for this post. You can upload the post images manually instead.",
         )
 
-    cdn_images = extract_public_image_urls(html)
+    # 1. Extract direct images from the post HTML
+    cdn_images = extract_public_image_urls(html, url)
 
-    # Check if this post is a multi-photo album where Facebook truncated the feed grid preview
+    # 2. Check if this post is a multi-photo album with an expected count
     sub_counts = [
-        int(c) for c in re.findall(r'"all_subattachments"\s*:\s*\{\s*"count"\s*:\s*(\d+)', html)
+        int(c) for c in re.findall(r'"(?:all_subattachments|subattachments)"\s*:\s*\{\s*"count"\s*:\s*(\d+)', html)
     ]
     expected_count = max(sub_counts) if sub_counts else None
 
+    # 3. If an album exists or more photos are expected, check media set URLs
     media_set_urls = _extract_media_set_urls(html, url)
-
-    # If an album URL exists and we either need more images or media_set exists
     if media_set_urls:
         for ms_url in media_set_urls:
             try:
                 ms_html, _ = await fetch_public_page(ms_url)
                 if ms_html:
-                    ms_images = extract_public_image_urls(ms_html)
+                    ms_images = extract_public_image_urls(ms_html, ms_url)
                     if expected_count and len(ms_images) >= expected_count:
-                        # Full media set contains pure album photos without feed clutter
                         cdn_images = ms_images
                         break
                     elif len(ms_images) > 0:
@@ -404,13 +506,12 @@ async def import_facebook_images(url: str) -> FacebookImportResponse:
             except Exception as e:
                 logger.warning(f"Error fetching media set URL {ms_url}: {e}")
 
-    all_images: list[ImageInfo] = []
-    all_images.extend(cdn_images)
+    # 4. Only use Open Graph image as a last-resort fallback if NO post photos were found
+    if not cdn_images:
+        og_images = extract_open_graph_images(html)
+        cdn_images.extend(og_images)
 
-    og_images = extract_open_graph_images(html)
-    all_images.extend(og_images)
-
-    unique_images = _deduplicate_images(all_images)
+    unique_images = _deduplicate_images(cdn_images)
 
     if not unique_images:
         if _is_login_page(html):
@@ -420,7 +521,7 @@ async def import_facebook_images(url: str) -> FacebookImportResponse:
                 message=(
                     "Facebook prevented automatic image retrieval for this post. "
                     "The post may require login to view. "
-                    "You can upload the post images manually instead."
+                    "You can upload the post images manually via drag & drop."
                 ),
             )
         return FacebookImportResponse(
@@ -433,10 +534,22 @@ async def import_facebook_images(url: str) -> FacebookImportResponse:
             ),
         )
 
+    # Format user-friendly response message
+    if expected_count and len(unique_images) >= expected_count:
+        message = f"Successfully imported all {len(unique_images)} images from post."
+    elif expected_count and len(unique_images) < expected_count:
+        message = (
+            f"Imported {len(unique_images)} of {expected_count} images. "
+            "Facebook's public feed truncated the rest of the album preview — "
+            "you can add any remaining pages anytime using 'Add More' or manual file upload."
+        )
+    else:
+        message = f"Found {len(unique_images)} image(s)."
+
     return FacebookImportResponse(
         success=True,
         images=unique_images,
-        message=f"Found {len(unique_images)} image(s).",
+        message=message,
     )
 
 

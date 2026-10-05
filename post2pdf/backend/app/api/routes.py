@@ -228,7 +228,15 @@ async def proxy_image(url: str):
         async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
             resp = await client.get(url, headers=headers)
             if resp.status_code == 200:
-                media_type = resp.headers.get("content-type", "image/jpeg")
+                media_type = resp.headers.get("content-type", "")
+                # Prevent returning HTML login/checkpoint pages as fake JPEGs
+                if (
+                    b"<html" in resp.content[:200].lower()
+                    or b"<!doctype" in resp.content[:200].lower()
+                    or "text/html" in media_type.lower()
+                ):
+                    raise HTTPException(status_code=404, detail="Resource is not a valid image.")
+
                 if not media_type.startswith("image/"):
                     media_type = "image/jpeg"
                 return Response(

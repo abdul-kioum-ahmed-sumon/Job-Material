@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { RotateCw, X, GripVertical, ZoomIn } from 'lucide-react';
+import { RotateCw, X, GripVertical, ZoomIn, AlertTriangle } from 'lucide-react';
 import type { ImportedImage } from '../types';
 
 interface SortableImageCardProps {
@@ -18,6 +19,7 @@ export default function SortableImageCard({
   onRotate,
   onPreview,
 }: SortableImageCardProps) {
+  const [imageError, setImageError] = useState(false);
   const {
     attributes,
     listeners,
@@ -43,14 +45,34 @@ export default function SortableImageCard({
     >
       {/* Aspect Square Image Container */}
       <div className="aspect-square relative overflow-hidden bg-slate-100 dark:bg-slate-950 flex items-center justify-center">
-        <img
-          src={image.previewUrl}
-          alt={`Study Sheet ${index}`}
-          className="w-full h-full object-cover transition-transform duration-300"
-          style={{ transform: `rotate(${image.rotation}deg)` }}
-          loading="lazy"
-          draggable={false}
-        />
+        {imageError ? (
+          <div className="flex flex-col items-center justify-center p-3 text-center space-y-2 bg-slate-100 dark:bg-slate-900 w-full h-full select-none">
+            <AlertTriangle className="w-6 h-6 text-amber-500 shrink-0" />
+            <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+              Image Unavailable
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove(image.id);
+              }}
+              className="text-[11px] font-bold text-rose-500 hover:text-rose-600 underline"
+            >
+              Remove
+            </button>
+          </div>
+        ) : (
+          <img
+            src={image.previewUrl}
+            alt={`Study Sheet ${index}`}
+            className="w-full h-full object-cover transition-transform duration-300"
+            style={{ transform: `rotate(${image.rotation}deg)` }}
+            loading="lazy"
+            draggable={false}
+            onError={() => setImageError(true)}
+          />
+        )}
 
         {/* Index Badge & Reorder Handle (Top-left, non-overlapping flex layout) */}
         <div className="absolute top-2 left-2 z-20 flex items-center gap-1.5">
