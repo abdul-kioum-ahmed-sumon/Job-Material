@@ -6,6 +6,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Post2PDF • Convert Facebook Study Images to Clean PDF</title>
     <meta name="description" content="Fast, private converter for Facebook study materials, notes, and question sheets into clean, printable PDFs. Developed by A.K.A.SUMON." />
+    <!-- Prevent theme flicker / FOUC -->
+    <script>
+      (function() {
+        try {
+          var theme = localStorage.getItem('post2pdf-theme') || 'system';
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var isDark = theme === 'dark' || (theme === 'system' && prefersDark);
+          var root = document.documentElement;
+          if (isDark) {
+            root.classList.add('dark');
+            root.setAttribute('data-theme', 'dark');
+            root.style.colorScheme = 'dark';
+          } else {
+            root.classList.remove('dark');
+            root.setAttribute('data-theme', 'light');
+            root.style.colorScheme = 'light';
+          }
+        } catch (e) {}
+      })();
+    </script>
     <!-- Google Fonts: Outfit & Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

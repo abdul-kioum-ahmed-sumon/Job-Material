@@ -136,6 +136,35 @@ export default function Header({ theme, setTheme }: HeaderProps) {
               );
             })}
 
+            {/* Mobile Theme Switcher */}
+            <div className="pt-3 pb-1 border-t border-slate-100 dark:border-slate-800/80">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-2 block mb-2">
+                Appearance
+              </span>
+              <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-slate-100/90 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60">
+                {(['light', 'dark', 'system'] as const).map((t) => {
+                  const Icon = t === 'light' ? Sun : t === 'dark' ? Moon : Monitor;
+                  const isSelected = theme === t;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setTheme(t)}
+                      className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold capitalize transition-all ${
+                        isSelected
+                          ? 'bg-white dark:bg-slate-900 text-brand-600 dark:text-brand-300 shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                      aria-pressed={isSelected}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      <span>{t}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Mobile dev credit */}
             <div className="pt-2 mt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between px-2 text-xs text-slate-500">
               <span className="flex items-center gap-1.5">
